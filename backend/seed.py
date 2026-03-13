@@ -21,7 +21,7 @@ def seed():
     # 2. Create sample question paper
     if not storage.get_paper_by_subject_code("CS301"):
         paper_doc = {
-            "_id": "paper-cs301",
+            "id": "paper-cs301",
             "title": "CS301 — Data Structures Final Exam",
             "subject_code": "CS301",
             "question_count": 5,
@@ -62,7 +62,7 @@ def seed():
     # 3. Create sample exam session
     if not storage.get_exam_session("SESSION-DEMO01"):
         session_doc = {
-            "_id": "SESSION-DEMO01",
+            "id": "SESSION-DEMO01",
             "subject_code": "CS301",
             "paper_id": "paper-cs301",
             "title": "CS301 — Data Structures Final Exam",

@@ -1,144 +1,163 @@
 import time
 import os
-from pymongo import MongoClient
-from bson import ObjectId
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 
-
-def sanitize_doc(doc):
-    """Recursively convert ObjectId to str so FastAPI can serialize."""
-    if doc is None:
-        return None
-    if isinstance(doc, list):
-        return [sanitize_doc(item) for item in doc]
-    if isinstance(doc, dict):
-        return {k: sanitize_doc(v) for k, v in doc.items()}
-    if isinstance(doc, ObjectId):
-        return str(doc)
-    return doc
+# Import Supabase client
+try:
+    from supabase import create_client, Client
+except ImportError:
+    raise ImportError("supabase package not installed. Run: pip install supabase")
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env.backend"))
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=30000, connectTimeoutMS=30000)
-db = client["exam_guardrail"]
+# ══════════════════════════════════════════════════════════
+# SUPABASE INITIALIZATION
+# ══════════════════════════════════════════════════════════
 
-# ── Collections ──────────────────────────────────────────
-sessions_collection = db["sessions"]
-events_collection = db["events"]
-users_collection = db["users"]
-tokens_collection = db["tokens"]
-papers_collection = db["question_papers"]
-exam_sessions_collection = db["exam_sessions"]
-submissions_collection = db["submissions"]
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError(
+        "Missing Supabase credentials. Set SUPABASE_URL and SUPABASE_KEY in .env.backend\n"
+        "Get these from your Supabase project at https://supabase.com/dashboard"
+    )
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # In-memory tracking for duplicate detection
 last_event_time = {}
 
 
 # ══════════════════════════════════════════════════════════
-# MONITORING SESSIONS (existing)
+# MONITORING SESSIONS
 # ══════════════════════════════════════════════════════════
 
 def create_session(session_id: str, student_name: str = "", student_email: str = "", exam_title: str = ""):
+    """Create a new monitoring session"""
     session_doc = {
-        "_id": session_id,
+        "id": session_id,
         "score": 100,
         "status": "active",
-        "studentName": student_name,
-        "studentEmail": student_email,
-        "examTitle": exam_title,
-        "startTime": datetime.utcnow().isoformat(),
-        "endTime": None,
-        "riskScore": 0,
+        "student_name": student_name,
+        "student_email": student_email,
+        "exam_title": exam_title,
+        "start_time": datetime.utcnow().isoformat(),
+        "end_time": None,
+        "risk_score": 0,
         "violations": [],
     }
-    sessions_collection.insert_one(session_doc)
+    try:
+        supabase.table("sessions").insert(session_doc).execute()
+    except Exception as e:
+        print(f"Error creating session: {e}")
 
 
 def add_event(session_id: str, event: dict):
+    """Add an event to a session"""
     event_doc = {
-        "sessionId": session_id,
-        "eventType": event.get("event_type"),
+        "session_id": session_id,
+        "event_type": event.get("event_type"),
         "severity": event.get("severity"),
         "timestamp": event.get("timestamp"),
         "description": event.get("description", ""),
     }
-    events_collection.insert_one(event_doc)
     try:
-        sessions_collection.update_one(
-            {"_id": session_id}, {"$push": {"violations": event_doc}}
-        )
-    except:
-        pass
+        # Add event to events table
+        supabase.table("events").insert(event_doc).execute()
+        
+        # Also add to violations array in sessions table
+        session = supabase.table("sessions").select("violations").eq("id", session_id).execute()
+        if session.data:
+            violations = session.data[0].get("violations", []) or []
+            violations.append(event_doc)
+            supabase.table("sessions").update({"violations": violations}).eq("id", session_id).execute()
+    except Exception as e:
+        print(f"Error adding event: {e}")
 
 
 def update_score(session_id: str, delta: int):
+    """Update session score and risk score"""
     try:
-        session = sessions_collection.find_one({"_id": session_id})
-        if session:
-            new_score = session.get("score", 100) + delta
+        session = supabase.table("sessions").select("score").eq("id", session_id).execute()
+        if session.data:
+            new_score = session.data[0].get("score", 100) + delta
             if new_score < 0:
                 new_score = 0
-            sessions_collection.update_one(
-                {"_id": session_id},
-                {"$set": {"score": new_score, "riskScore": 100 - new_score}},
-            )
-    except:
-        pass
+            risk_score = 100 - new_score
+            supabase.table("sessions").update({
+                "score": new_score,
+                "risk_score": risk_score,
+            }).eq("id", session_id).execute()
+    except Exception as e:
+        print(f"Error updating score: {e}")
 
 
 def get_score(session_id: str) -> int:
+    """Get session score"""
     try:
-        session = sessions_collection.find_one({"_id": session_id})
-        if session:
-            return session.get("score", 100)
-    except:
-        pass
+        session = supabase.table("sessions").select("score").eq("id", session_id).execute()
+        if session.data:
+            return session.data[0].get("score", 100)
+    except Exception as e:
+        print(f"Error getting score: {e}")
     return 100
 
 
 def get_events(session_id: str) -> list:
+    """Get all events for a session"""
     try:
-        return sanitize_doc(list(events_collection.find({"sessionId": session_id})))
-    except:
+        events = supabase.table("events").select("*").eq("session_id", session_id).execute()
+        return events.data if events.data else []
+    except Exception as e:
+        print(f"Error getting events: {e}")
         return []
 
 
 def get_session(session_id: str) -> dict:
+    """Get a single session"""
     try:
-        session = sessions_collection.find_one({"_id": session_id})
-        if session:
-            return sanitize_doc(session)
-    except:
-        pass
+        session = supabase.table("sessions").select("*").eq("id", session_id).execute()
+        if session.data:
+            s = session.data[0]
+            s["_id"] = s.get("id")  # For backward compatibility
+            return s
+    except Exception as e:
+        print(f"Error getting session: {e}")
     return None
 
 
 def get_all_sessions() -> list:
+    """Get all sessions"""
     try:
-        sessions = sanitize_doc(list(sessions_collection.find()))
-        for s in sessions:
-            s["id"] = s.get("_id", "")
-        return sessions
-    except:
+        sessions = supabase.table("sessions").select("*").execute()
+        result = []
+        if sessions.data:
+            for s in sessions.data:
+                s["_id"] = s.get("id")  # For backward compatibility
+                result.append(s)
+        return result
+    except Exception as e:
+        print(f"Error getting all sessions: {e}")
         return []
 
 
 def update_session_status(session_id: str, status: str):
+    """Update session status and end time"""
     try:
-        sessions_collection.update_one(
-            {"_id": session_id},
-            {"$set": {"status": status, "endTime": datetime.utcnow().isoformat()}},
-        )
-    except:
-        pass
+        supabase.table("sessions").update({
+            "status": status,
+            "end_time": datetime.utcnow().isoformat(),
+        }).eq("id", session_id).execute()
+    except Exception as e:
+        print(f"Error updating session status: {e}")
 
 
 def is_duplicate(session_id: str, event_type: str) -> bool:
+    """Check if event is a duplicate (within 5 seconds)"""
     key = session_id + event_type
     now = time.time()
     if key in last_event_time:
@@ -153,33 +172,63 @@ def is_duplicate(session_id: str, event_type: str) -> bool:
 # ══════════════════════════════════════════════════════════
 
 def create_user(user_doc: dict):
-    users_collection.replace_one(
-        {"_id": user_doc["_id"]},
-        user_doc,
-        upsert=True,
-    )
+    """Create or update a user"""
+    try:
+        # Check if user exists
+        existing = supabase.table("users").select("id").eq("id", user_doc["id"]).execute()
+        if existing.data:
+            # Update existing user
+            supabase.table("users").update(user_doc).eq("id", user_doc["id"]).execute()
+        else:
+            # Insert new user
+            supabase.table("users").insert(user_doc).execute()
+    except Exception as e:
+        print(f"Error creating user: {e}")
 
 
 def get_user_by_username(username: str) -> dict:
+    """Get user by username"""
     try:
-        return sanitize_doc(users_collection.find_one({"username": username}))
-    except:
-        return None
+        user = supabase.table("users").select("*").eq("username", username).execute()
+        if user.data:
+            u = user.data[0]
+            u["_id"] = u.get("id")  # For backward compatibility
+            return u
+    except Exception as e:
+        print(f"Error getting user: {e}")
+    return None
 
 
 def save_token(token: str, user_id: str, role: str):
-    tokens_collection.update_one(
-        {"_id": token},
-        {"$set": {"_id": token, "user_id": user_id, "role": role, "created_at": datetime.utcnow().isoformat()}},
-        upsert=True,
-    )
+    """Save or update an auth token"""
+    try:
+        token_doc = {
+            "id": token,
+            "user_id": user_id,
+            "role": role,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        # Check if token exists
+        existing = supabase.table("tokens").select("id").eq("id", token).execute()
+        if existing.data:
+            supabase.table("tokens").update(token_doc).eq("id", token).execute()
+        else:
+            supabase.table("tokens").insert(token_doc).execute()
+    except Exception as e:
+        print(f"Error saving token: {e}")
 
 
 def get_token(token: str) -> dict:
+    """Get token info"""
     try:
-        return sanitize_doc(tokens_collection.find_one({"_id": token}))
-    except:
-        return None
+        token_data = supabase.table("tokens").select("*").eq("id", token).execute()
+        if token_data.data:
+            t = token_data.data[0]
+            t["_id"] = t.get("id")  # For backward compatibility
+            return t
+    except Exception as e:
+        print(f"Error getting token: {e}")
+    return None
 
 
 # ══════════════════════════════════════════════════════════
@@ -187,45 +236,76 @@ def get_token(token: str) -> dict:
 # ══════════════════════════════════════════════════════════
 
 def create_question_paper(doc: dict):
-    papers_collection.insert_one(doc)
+    """Create a question paper"""
+    try:
+        # Ensure questions are JSON stored as JSONB
+        if "questions" in doc and isinstance(doc["questions"], list):
+            doc["questions"] = doc["questions"]  # Supabase will handle JSON encoding
+        
+        # Map _id to id for consistency
+        if "_id" in doc and "id" not in doc:
+            doc["id"] = doc.pop("_id")
+        
+        supabase.table("question_papers").insert(doc).execute()
+    except Exception as e:
+        print(f"Error creating question paper: {e}")
 
 
 def get_all_question_papers() -> list:
+    """Get all question papers"""
     try:
-        papers = sanitize_doc(list(papers_collection.find()))
-        for p in papers:
-            p["id"] = p.get("_id", "")
-        return papers
-    except:
+        papers = supabase.table("question_papers").select("*").execute()
+        result = []
+        if papers.data:
+            for p in papers.data:
+                p["_id"] = p.get("id")  # For backward compatibility
+                result.append(p)
+        return result
+    except Exception as e:
+        print(f"Error getting question papers: {e}")
         return []
 
 
 def get_question_paper(paper_id: str) -> dict:
+    """Get a single question paper"""
     try:
-        paper = sanitize_doc(papers_collection.find_one({"_id": paper_id}))
-        if paper:
-            paper["id"] = paper.get("_id", "")
-        return paper
-    except:
-        return None
+        paper = supabase.table("question_papers").select("*").eq("id", paper_id).execute()
+        if paper.data:
+            p = paper.data[0]
+            p["_id"] = p.get("id")  # For backward compatibility
+            return p
+    except Exception as e:
+        print(f"Error getting question paper: {e}")
+    return None
 
 
 def get_paper_by_subject_code(subject_code: str) -> dict:
+    """Get question paper by subject code"""
     try:
-        paper = sanitize_doc(papers_collection.find_one({"subject_code": subject_code}))
-        if paper:
-            paper["id"] = paper.get("_id", "")
-        return paper
-    except:
-        return None
+        paper = supabase.table("question_papers").select("*").eq("subject_code", subject_code).execute()
+        if paper.data:
+            p = paper.data[0]
+            p["_id"] = p.get("id")  # For backward compatibility
+            return p
+    except Exception as e:
+        print(f"Error getting paper by subject code: {e}")
+    return None
 
 
 def update_question_paper(paper_id: str, update_data: dict):
-    papers_collection.update_one({"_id": paper_id}, {"$set": update_data})
+    """Update a question paper"""
+    try:
+        supabase.table("question_papers").update(update_data).eq("id", paper_id).execute()
+    except Exception as e:
+        print(f"Error updating question paper: {e}")
 
 
 def delete_question_paper(paper_id: str):
-    papers_collection.delete_one({"_id": paper_id})
+    """Delete a question paper"""
+    try:
+        supabase.table("question_papers").delete().eq("id", paper_id).execute()
+    except Exception as e:
+        print(f"Error deleting question paper: {e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -233,33 +313,53 @@ def delete_question_paper(paper_id: str):
 # ══════════════════════════════════════════════════════════
 
 def create_exam_session(doc: dict):
-    exam_sessions_collection.insert_one(doc)
+    """Create an exam session"""
+    try:
+        # Map _id to id for consistency
+        if "_id" in doc and "id" not in doc:
+            doc["id"] = doc.pop("_id")
+        
+        supabase.table("exam_sessions").insert(doc).execute()
+    except Exception as e:
+        print(f"Error creating exam session: {e}")
 
 
 def get_all_exam_sessions() -> list:
+    """Get all exam sessions"""
     try:
-        sessions = sanitize_doc(list(exam_sessions_collection.find()))
-        for s in sessions:
-            s["id"] = s.get("_id", "")
-            s["session_id"] = s.get("_id", "")
-        return sessions
-    except:
+        sessions = supabase.table("exam_sessions").select("*").execute()
+        result = []
+        if sessions.data:
+            for s in sessions.data:
+                s["_id"] = s.get("id")  # For backward compatibility
+                s["session_id"] = s.get("id")
+                result.append(s)
+        return result
+    except Exception as e:
+        print(f"Error getting exam sessions: {e}")
         return []
 
 
 def get_exam_session(session_id: str) -> dict:
+    """Get a single exam session"""
     try:
-        session = sanitize_doc(exam_sessions_collection.find_one({"_id": session_id}))
-        if session:
-            session["id"] = session.get("_id", "")
-            session["session_id"] = session.get("_id", "")
-        return session
-    except:
-        return None
+        session = supabase.table("exam_sessions").select("*").eq("id", session_id).execute()
+        if session.data:
+            s = session.data[0]
+            s["_id"] = s.get("id")  # For backward compatibility
+            s["session_id"] = s.get("id")
+            return s
+    except Exception as e:
+        print(f"Error getting exam session: {e}")
+    return None
 
 
 def update_exam_session(session_id: str, update_data: dict):
-    exam_sessions_collection.update_one({"_id": session_id}, {"$set": update_data})
+    """Update an exam session"""
+    try:
+        supabase.table("exam_sessions").update(update_data).eq("id", session_id).execute()
+    except Exception as e:
+        print(f"Error updating exam session: {e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -267,27 +367,49 @@ def update_exam_session(session_id: str, update_data: dict):
 # ══════════════════════════════════════════════════════════
 
 def save_submission(doc: dict):
-    submissions_collection.insert_one(doc)
+    """Save a submission"""
+    try:
+        # Ensure answers and results are JSON
+        if "answers" in doc:
+            # Keep as dict, Supabase will encode to JSONB
+            pass
+        if "results" in doc:
+            # Keep as dict, Supabase will encode to JSONB
+            pass
+        
+        supabase.table("submissions").insert(doc).execute()
+    except Exception as e:
+        print(f"Error saving submission: {e}")
 
 
 def get_submission(session_id: str, student_name: str) -> dict:
+    """Get a submission by session and student"""
     try:
-        return sanitize_doc(submissions_collection.find_one({"session_id": session_id, "student_name": student_name}))
-    except:
-        return None
+        submission = supabase.table("submissions").select("*").eq("session_id", session_id).eq("student_name", student_name).execute()
+        if submission.data:
+            return submission.data[0]
+    except Exception as e:
+        print(f"Error getting submission: {e}")
+    return None
 
 
 def get_session_submissions(session_id: str) -> list:
+    """Get all submissions for a session"""
     try:
-        return sanitize_doc(list(submissions_collection.find({"session_id": session_id})))
-    except:
+        submissions = supabase.table("submissions").select("*").eq("session_id", session_id).execute()
+        return submissions.data if submissions.data else []
+    except Exception as e:
+        print(f"Error getting session submissions: {e}")
         return []
 
 
 def get_all_submissions() -> list:
+    """Get all submissions"""
     try:
-        return sanitize_doc(list(submissions_collection.find()))
-    except:
+        submissions = supabase.table("submissions").select("*").execute()
+        return submissions.data if submissions.data else []
+    except Exception as e:
+        print(f"Error getting all submissions: {e}")
         return []
 
 
@@ -299,7 +421,7 @@ def seed_default_admin():
     """Create or update default admin user"""
     try:
         create_user({
-            "_id": "admin",
+            "id": "admin",
             "username": "admin",
             "password": "admin123",
             "name": "Administrator",
@@ -307,4 +429,4 @@ def seed_default_admin():
         })
         print("✅ Default admin ready (admin/admin123)")
     except Exception as e:
-        print(f"⚠️ Could not seed admin (MongoDB may be slow): {e}")
+        print(f"⚠️ Could not seed admin (Supabase may not be connected): {e}")

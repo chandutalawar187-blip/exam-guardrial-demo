@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, HTTPException
-from models import LoginRequest, StudentJoinRequest
-import storage
+from .models import LoginRequest, StudentJoinRequest
+from . import storage
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

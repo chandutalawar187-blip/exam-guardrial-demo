@@ -1,42 +1,44 @@
 # Exam Guardrail - Setup Guide
 
 ## Overview
-This project consists of a FastAPI backend connected to a MongoDB database and a React frontend. Follow these steps to get everything up and running.
+This project consists of a FastAPI backend connected to **Supabase** (PostgreSQL) and a React frontend. Follow these steps to get everything running.
 
 ## Prerequisites
 - Python 3.8+
 - Node.js 16+ and npm or bun
-- MongoDB Atlas account (for cloud MongoDB)
+- Supabase account (free at https://supabase.com)
 - Git
 
 ## Backend Setup
 
 ### 1. Install Python Dependencies
 ```bash
-cd /path/to/exam-guardrail-demo
+cd /path/to/exam-guardrial
 pip install -r requirements.txt
 ```
 
-### 2. Configure MongoDB URI
-Edit `.env.backend` and replace the placeholder with your MongoDB URI:
+### 2. Set Up Supabase Database
 
-```bash
-# .env.backend
-MONGODB_URI=mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/exam_guardrail?retryWrites=true&w=majority
-```
+**See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for detailed step-by-step instructions.**
 
-To get your MongoDB URI:
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
-2. Create or log in to your account
-3. Create a new cluster or use existing one
-4. Click "Connect"
-5. Choose "Drivers" → "Python"
-6. Copy the connection string and replace `<username>`, `<password>`, and `<cluster>` with your credentials
+**Quick Summary:**
+1. Create a free project at [supabase.com](https://supabase.com)
+2. Run the SQL schema from `schema.sql` in your Supabase SQL Editor
+3. Get your Project URL and Anon Public Key from **Settings > API**
+4. Create `.env.backend`:
+   ```bash
+   SUPABASE_URL=https://your-project-id.supabase.co
+   SUPABASE_KEY=your-anon-key-here
+   ```
+5. Run the seed script:
+   ```bash
+   python -m backend.seed
+   ```
 
 ### 3. Run the Backend Server
 ```bash
-cd /path/to/exam-guardrail-demo/backend
-python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+cd /path/to/exam-guardrial
+python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The API will be available at `http://localhost:8000`
@@ -46,15 +48,12 @@ Check health: `curl http://localhost:8000/`
 ### 4. Backend Endpoints
 
 **Sessions:**
-- `GET /sessions` - Get all exam sessions
-- `GET /session/{session_id}` - Get specific session
-- `POST /session/{session_id}` - Create new session
-  - Query params: `student_name`, `student_email`, `exam_title`
-- `POST /session/{session_id}/complete` - Complete/terminate session
-  - Body: `{ "status": "completed" or "terminated" }`
+- `GET /api/sessions` - Get all sessions
+- `GET /api/session/{session_id}` - Get specific session
+- `POST /api/auth/student-join` - Join exam session
 
 **Events:**
-- `POST /events` - Submit detection event
+- `POST /api/events` - Submit detection event
   - Body: 
     ```json
     {
@@ -65,59 +64,38 @@ Check health: `curl http://localhost:8000/`
     }
     ```
 
-**Reports:**
-- `GET /report/{session_id}` - Get credibility report
+**Auth:**
+- `POST /api/auth/login` - Admin login
+- `POST /api/auth/student-join` - Student joins exam
 
-### 5. Database Schema
+### 5. Database Tables
 
-The MongoDB database automatically creates collections:
+Supabase creates these tables:
+- `users` - Admin accounts
+- `tokens` - Auth tokens
+- `sessions` - Live monitoring sessions
+- `events` - Cheating detection events
+- `question_papers` - Exam questions
+- `exam_sessions` - Scheduled exams
+- `submissions` - Student answers
 
-**sessions collection:**
-```json
-{
-  "_id": "s-1",
-  "score": 95,
-  "status": "active",
-  "studentName": "John Doe",
-  "studentEmail": "john@example.com",
-  "examTitle": "CS301 - Data Structures",
-  "startTime": "2026-03-10T10:30:00",
-  "endTime": null,
-  "riskScore": 5,
-  "violations": []
-}
-```
-
-**events collection:**
-```json
-{
-  "_id": ObjectId,
-  "sessionId": "s-1",
-  "eventType": "tab_switch",
-  "severity": "low",
-  "timestamp": "2026-03-10T10:35:00",
-  "description": "Student switched tabs"
-}
-```
+See `schema.sql` for complete schema.
 
 ## Frontend Setup
 
 ### 1. Install Dependencies
 ```bash
-cd /path/to/exam-guardrail-demo/interface-companion
+cd /path/to/exam-guardrial/frontend
 npm install
 # or
 bun install
 ```
 
 ### 2. Configure API URL
-Edit `.env.local`:
+Edit `frontend/.env.local`:
 ```bash
-# .env.local
 VITE_API_URL=http://localhost:8000
 ```
-
-If your backend is on a different host/port, update this URL accordingly.
 
 ### 3. Run Development Server
 ```bash
@@ -126,7 +104,7 @@ npm run dev
 bun run dev
 ```
 
-The frontend will be available at `http://localhost:5173` (or another port if 5173 is in use)
+Frontend available at `http://localhost:5173`
 
 ### 4. Build for Production
 ```bash
@@ -139,150 +117,106 @@ bun run build
 
 ### 1. Start Backend
 ```bash
-cd backend
-python -m uvicorn main:app --reload
+cd exam-guardrial
+python -m uvicorn backend.main:app --reload
 ```
 
 ### 2. Start Frontend
 ```bash
-cd interface-companion
+cd frontend
 npm run dev
 ```
 
-### 3. Create a Test Session
+### 3. Login to Admin Dashboard
+- Go to `http://localhost:5173`
+- Login with: `admin` / `admin123`
+- Access admin dashboard
 
-Using curl:
-```bash
-curl -X POST "http://localhost:8000/session/test-1?student_name=John%20Doe&student_email=john@example.com&exam_title=CS301"
-```
-
-Or via Python:
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8000/session/test-1",
-    params={
-        "student_name": "John Doe",
-        "student_email": "john@example.com",
-        "exam_title": "CS301 - Data Structures"
-    }
-)
-print(response.json())
-```
-
-### 4. Submit Events
-
-```bash
-curl -X POST "http://localhost:8000/events" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "test-1",
-    "event_type": "tab_switch",
-    "severity": "low",
-    "description": "Student switched tabs"
-  }'
-```
-
-### 5. Get Credibility Report
-
-```bash
-curl "http://localhost:8000/report/test-1"
-```
-
-## API Client Hooks (Frontend)
-
-The frontend provides custom React hooks for API interaction:
-
-```typescript
-import { useSessions, useSession, useSessionReport, useSubmitEvent } from "@/hooks/useApi";
-
-// Get all sessions
-const { data: sessions, isLoading, error } = useSessions();
-
-// Get specific session
-const { data: session } = useSession("test-1");
-
-// Get credibility report
-const { data: report } = useSessionReport("test-1");
-
-// Submit event
-const { mutate: submitEvent } = useSubmitEvent();
-submitEvent({
-  sessionId: "test-1",
-  eventType: "tab_switch",
-  severity: "low",
-  description: "Switched tabs"
-});
-```
+### 4. Test Student Join
+- Use Session ID: `SESSION-DEMO01`
+- Subject Code: `CS301`
+- Student Name: Any name
 
 ## Troubleshooting
 
+### Supabase Connection Error
+**Problem:** Backend crashes with Supabase error
+
+**Solutions:**
+1. Verify `.env.backend` has correct credentials
+2. Format check:
+   - URL: `https://your-project-id.supabase.co`
+   - KEY: Anon Public Key only (not Service Role)
+3. Ensure `schema.sql` was executed in Supabase
+4. Verify Supabase project is active
+
 ### Backend Connection Error
-**Problem:** Frontend shows "Backend Connection Error"
+**Problem:** Frontend shows connection error
 
 **Solutions:**
-1. Verify backend is running: `curl http://localhost:8000/`
-2. Check `VITE_API_URL` in `.env.local` matches your backend URL
+1. Verify backend running: `curl http://localhost:8000/`
+2. Check `VITE_API_URL` in `.env.local`
 3. Check browser console for CORS errors
-4. Ensure firewall allows port 8000
-
-### MongoDB Connection Error
-**Problem:** Backend crashes with MongoDB connection error
-
-**Solutions:**
-1. Verify MongoDB URI in `.env.backend` is correct
-2. Ensure MongoDB cluster is accessible (check IP whitelist in MongoDB Atlas)
-3. Test connection with MongoDB Compass using the URI
-4. Check username and password are correct
+4. Ensure port 8000 is accessible
 
 ### Port Already in Use
-**For Backend (8000):**
-```bash
-# Windows
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
 
-# macOS/Linux
-lsof -ti:8000 | xargs kill -9
+**Backend (Port 8000):**
+```bash
+python -m uvicorn backend.main:app --reload --port 8001
 ```
 
-**For Frontend (5173):**
-Will automatically use next available port, or specify:
+**Frontend (Port 5173):**
 ```bash
 npm run dev -- --port 3000
 ```
+
+### Python Dependency Issues
+```bash
+rm -r venv  # Windows: rmdir venv
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Environment Variables Not Loading
+1. Verify `.env.backend` exists in project root
+2. Check variable names (case-sensitive)
+3. Restart terminal
+4. Test: `python -c "import os; from dotenv import load_dotenv; load_dotenv('.env.backend'); print(os.getenv('SUPABASE_URL'))"`
 
 ## Production Deployment
 
 ### Backend
 ```bash
-# Install gunicorn
 pip install gunicorn
-
-# Run with gunicorn
 gunicorn backend.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
 ### Frontend
 ```bash
-# Build
 npm run build
-
-# Serve with a static server or deploy to Vercel/Netlify
 npm install -g serve
 serve -s dist -l 3000
 ```
 
+Or deploy to Vercel/Netlify using the built `dist/` folder.
+
 ## Environment Variables Summary
 
-### Backend `.env.backend`
-- `MONGODB_URI` - MongoDB connection string (required)
-- `API_HOST` - Server host (default: 0.0.0.0)
-- `API_PORT` - Server port (default: 8000)
+### Backend (`.env.backend`)
+- `SUPABASE_URL` - Supabase project URL (required)
+- `SUPABASE_KEY` - Supabase Anon Public Key (required)
 
-### Frontend `.env.local`
+### Frontend (`.env.local`)
 - `VITE_API_URL` - Backend API URL (default: http://localhost:8000)
 
+## Next Steps
+1. Read [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for detailed database setup
+2. Check [INTEGRATION_SUMMARY.md](./INTEGRATION_SUMMARY.md) for architecture overview
+3. Review [README.md](./readme.md) for project details
+
 ## Support
-For issues or questions, check the project README or submit an issue on GitHub.
+- Supabase docs: https://supabase.com/docs
+- FastAPI docs: https://fastapi.tiangolo.com
+- For issues: Check error logs and README files

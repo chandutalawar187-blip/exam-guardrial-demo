@@ -24,10 +24,10 @@ fi
 
 # Menu
 echo -e "${BLUE}Select what to do:${NC}"
-echo "1. Quick Start (requires MongoDB URI)"
-echo "2. Start with Docker MongoDB (recommended)"
-echo "3. Backend only"
-echo "4. Frontend only"
+echo "1. Quick Start (requires Supabase setup)"
+echo "2. Backend only"
+echo "3. Frontend only"
+echo "4. Install dependencies & run seed"
 echo "5. Install dependencies only"
 echo ""
 read -p "Enter choice (1-5): " choice
@@ -41,10 +41,12 @@ case $choice in
         # Check for .env.backend
         if [ ! -f ".env.backend" ]; then
             echo -e "${RED}❌ .env.backend not found!${NC}"
-            echo "Please create .env.backend with your MongoDB URI:"
+            echo "Please create .env.backend with your Supabase credentials:"
             echo ""
-            echo "  MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/exam_guardrail"
+            echo "  SUPABASE_URL=https://your-project-id.supabase.co"
+            echo "  SUPABASE_KEY=your-anon-key-here"
             echo ""
+            echo "See SUPABASE_SETUP.md for detailed instructions"
             exit 1
         fi
         

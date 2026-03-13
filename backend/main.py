@@ -1,13 +1,14 @@
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from models import Event
-import storage
-import scoring
+from .models import Event
+from . import storage
+from . import scoring
 
 # Import new routers
-from auth import router as auth_router
-from exam_routes import router as exam_router
+from .auth import router as auth_router
+from .exam_routes import router as exam_router
 
 app = FastAPI(title="Exam Guardrail Platform", version="2.0")
 
@@ -54,11 +55,27 @@ def get_all_sessions():
     """Get all monitoring sessions with their events"""
     try:
         sessions = storage.get_all_sessions()
-        # Embed events into each session
+        # Transform and embed events into each session
+        transformed_sessions = []
         for session in sessions:
             sid = session.get("_id") or session.get("id", "")
             events = storage.get_events(sid)
-            session["events"] = events
+            
+            # Transform snake_case to camelCase for frontend compatibility
+            transformed = {
+                "id": session.get("id") or session.get("_id"),
+                "_id": session.get("id") or session.get("_id"),
+                "score": session.get("score", 100),
+                "status": session.get("status", "active"),
+                "studentName": session.get("student_name", ""),
+                "studentEmail": session.get("student_email", ""),
+                "examTitle": session.get("exam_title", ""),
+                "startTime": session.get("start_time", ""),
+                "endTime": session.get("end_time"),
+                "riskScore": session.get("risk_score", 0),
+                "events": events,
+            }
+            
             # Map events to violations format for frontend compatibility
             violations = []
             for i, ev in enumerate(events):
@@ -71,9 +88,12 @@ def get_all_sessions():
                     "timestamp": ev.get("timestamp", ""),
                     "metadata": ev.get("metadata"),
                 })
-            session["violations"] = violations
-        return {"sessions": sessions}
-    except Exception:
+            transformed["violations"] = violations
+            transformed_sessions.append(transformed)
+        
+        return {"sessions": transformed_sessions}
+    except Exception as e:
+        print(f"Error in get_all_sessions: {e}")
         return {"sessions": []}
 
 
@@ -83,7 +103,40 @@ def get_session(session_id: str):
     session = storage.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return session
+    
+    # Get events for this session
+    events = storage.get_events(session_id)
+    
+    # Transform snake_case to camelCase
+    transformed = {
+        "id": session.get("id") or session.get("_id"),
+        "_id": session.get("id") or session.get("_id"),
+        "score": session.get("score", 100),
+        "status": session.get("status", "active"),
+        "studentName": session.get("student_name", ""),
+        "studentEmail": session.get("student_email", ""),
+        "examTitle": session.get("exam_title", ""),
+        "startTime": session.get("start_time", ""),
+        "endTime": session.get("end_time"),
+        "riskScore": session.get("risk_score", 0),
+        "events": events,
+    }
+    
+    # Map events to violations format
+    violations = []
+    for i, ev in enumerate(events):
+        violations.append({
+            "id": f"{session_id}-{i}",
+            "type": ev.get("event_type", "").lower(),
+            "event_type": ev.get("event_type", ""),
+            "severity": (ev.get("severity", "low")).lower(),
+            "description": ev.get("description", ""),
+            "timestamp": ev.get("timestamp", ""),
+            "metadata": ev.get("metadata"),
+        })
+    transformed["violations"] = violations
+    
+    return transformed
 
 
 @app.post("/session/{session_id}")
@@ -101,7 +154,12 @@ def receive_event(event: Event):
     """Process a cheating detection event"""
     try:
         delta = scoring.get_score_delta(event.event_type)
-        storage.add_event(event.session_id, event.dict())
+        # Convert event to dict and ensure datetime is JSON serializable
+        event_data = event.dict()
+        if isinstance(event_data.get("timestamp"), datetime):
+            event_data["timestamp"] = event_data["timestamp"].isoformat()
+        
+        storage.add_event(event.session_id, event_data)
         storage.update_score(event.session_id, delta)
 
         if storage.is_duplicate(event.session_id, event.event_type):

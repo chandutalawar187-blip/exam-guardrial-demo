@@ -1,14 +1,14 @@
 import uuid
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
-from models import (
+from .models import (
     QuestionPaperCreate,
     QuestionPaperUpdate,
     ExamSessionCreate,
     ExamSessionUpdate,
     ExamSubmit,
 )
-import storage
+from . import storage
 
 router = APIRouter(prefix="/api", tags=["exams"])
 
@@ -178,7 +178,7 @@ def get_exam_for_student(session_id: str):
 
 
 @router.post("/exam-sessions/{session_id}/submit")
-def submit_exam(session_id: str, submission: ExamSubmit, student_name: str = ""):
+def submit_exam(session_id: str, submission: ExamSubmit, student_name: str = "", marks_deducted: int = 0):
     """Submit exam answers and compute score"""
     session = storage.get_exam_session(session_id)
     if not session:
@@ -207,20 +207,25 @@ def submit_exam(session_id: str, submission: ExamSubmit, student_name: str = "")
                 "is_correct": is_correct,
             })
 
-    score = round((correct / total) * 100) if total > 0 else 0
+    base_score = round((correct / total) * 100) if total > 0 else 0
+    # Deduct marks for cheating violations
+    final_score = max(0, base_score - marks_deducted)
 
-    # Save submission
+    # Save submission - include all calculated values in metadata for reference
     submission_doc = {
         "session_id": session_id,
         "student_name": student_name,
         "answers": submission.answers,
-        "score": score,
+        "score": final_score,
         "correct_count": correct,
         "total_questions": total,
         "results": results,
         "submitted_at": datetime.utcnow().isoformat(),
         "submitted": True,
     }
+    
+    # Note: base_score and marks_deducted are tracked but not saved to DB yet
+    # They will be added to the response for frontend display
     storage.save_submission(submission_doc)
 
     # Complete the monitoring session
@@ -232,7 +237,9 @@ def submit_exam(session_id: str, submission: ExamSubmit, student_name: str = "")
 
     return {
         "message": "Exam submitted",
-        "score": score,
+        "score": final_score,
+        "base_score": base_score,
+        "marks_deducted": marks_deducted,
         "correct": correct,
         "total": total,
         "results": results,

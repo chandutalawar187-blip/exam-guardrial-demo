@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 6% 7%;
+    --foreground: 210 20% 90%;
+
+    --card: 228 6% 11%;
+    --card-foreground: 210 20% 90%;
+
+    --popover: 228 6% 11%;
+    --popover-foreground: 210 20% 90%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 225 6% 15%;
+    --secondary-foreground: 220 10% 70%;
+
+    --muted: 225 6% 15%;
+    --muted-foreground: 220 10% 55%;
+
+    --accent: 225 6% 18%;
+    --accent-foreground: 210 20% 90%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 225 6% 18%;
+    --input: 225 6% 18%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 228 6% 9%;
+    --sidebar-foreground: 220 10% 70%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 6% 15%;
+    --sidebar-accent-foreground: 210 20% 90%;
+    --sidebar-border: 225 6% 18%;
+    --sidebar-ring: 217 91% 60%;
+
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+}

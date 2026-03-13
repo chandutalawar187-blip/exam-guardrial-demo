@@ -1,6 +1,6 @@
 fastapi
 uvicorn
 pydantic
-pymongo
+supabase
 python-dotenv
 python-multipart

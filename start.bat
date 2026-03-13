@@ -17,10 +17,10 @@ if not exist "requirements.txt" (
 
 REM Menu
 echo Select what to do:
-echo 1. Quick Start (requires MongoDB URI)
-echo 2. Start with Docker MongoDB (recommended)
-echo 3. Backend only
-echo 4. Frontend only
+echo 1. Quick Start (requires Supabase setup)
+echo 2. Backend only
+echo 3. Frontend only
+echo 4. Install dependencies and run seed
 echo 5. Install dependencies only
 echo.
 set /p choice="Enter choice (1-5): "
@@ -32,10 +32,12 @@ if "%choice%"=="1" (
     
     if not exist ".env.backend" (
         echo ❌ .env.backend not found!
-        echo Please create .env.backend with your MongoDB URI:
+        echo Please create .env.backend with your Supabase credentials:
         echo.
-        echo   MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/exam_guardrail
+        echo   SUPABASE_URL=https://your-project-id.supabase.co
+        echo   SUPABASE_KEY=your-anon-key-here
         echo.
+        echo See SUPABASE_SETUP.md for detailed instructions
         exit /b 1
     )
     

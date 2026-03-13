@@ -1,45 +1,37 @@
 version: '3.8'
 
+# ══════════════════════════════════════════════════════════
+# Exam Guardrail Platform - Docker Compose (Supabase)
+# ══════════════════════════════════════════════════════════
+#
+# This project now uses Supabase for the database.
+# To set up Supabase:
+#
+# 1. Go to https://supabase.com and create a new project
+# 2. Run the SQL schema from schema.sql in your Supabase SQL Editor
+# 3. Get your API URL and API Key from Project Settings
+# 4. Add to your .env.backend file:
+#    SUPABASE_URL=your-project-url
+#    SUPABASE_KEY=your-anon-key
+#
+# For local development with Docker only, you can use:
+# - Frontend: npm run dev (from frontend folder)
+# - Backend: python -m uvicorn backend.main:app --reload
+#
+# ══════════════════════════════════════════════════════════
+
 services:
-  mongodb:
-    image: mongo:7.0
-    container_name: exam-guardrail-mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
-      MONGO_INITDB_DATABASE: exam_guardrail
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - exam-guardrail-network
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # Optional: Only add if you want PostgreSQL locally (advanced)
+  # Otherwise, use Supabase cloud at https://supabase.com
+  
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_PASSWORD: postgres
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
 
-  # Optional: MongoDB Express for GUI management
-  mongo-express:
-    image: mongo-express:1.0.0
-    container_name: exam-guardrail-mongo-express
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: password
-      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongodb:27017/
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: password
-    ports:
-      - "8081:8081"
-    depends_on:
-      - mongodb
-    networks:
-      - exam-guardrail-network
-
-volumes:
-  mongodb_data:
-
-networks:
-  exam-guardrail-network:
-    driver: bridge
+# volumes:
+#   postgres_data:
